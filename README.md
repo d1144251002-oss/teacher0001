@@ -104,7 +104,7 @@
  * 請將以下兩個佔位值換成 Supabase 專案的 Project URL 與 Publishable/anon key。
  * 不可在前端使用 service_role 或 Secret key。
  */
-const SUPABASE_URL = "https://yqrytizwuwgxpkqyyymd.supabase.co/rest/v1/";
+const SUPABASE_URL = "https://yqrytizwuwgxpkqyyymd.supabase.co";
 const SUPABASE_KEY = "sb_publishable_jydU8c5DZMBHuKLFuK2JOg_ZjmncLwU";
 
 let _supabase;
