@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師控制台 - ClassPoll</title>
+    <title>教師控制台 - Socket 實時版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Firebase JS SDK (雲端即時同步) -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <!-- 載入 Socket.io 客戶端套件 -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 </head>
 <body class="bg-slate-100 font-sans min-h-screen text-slate-800">
 
@@ -17,20 +16,20 @@
         <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center space-x-2">
                 <i class="fa-solid fa-chalkboard-user text-2xl"></i>
-                <span class="font-bold text-xl tracking-wide">ClassPoll 教師控制台</span>
+                <span class="font-bold text-xl tracking-wide">ClassPoll 教師控制台 (Socket)</span>
             </div>
             <div class="text-sm bg-indigo-700 px-3 py-1 rounded-full flex items-center gap-1">
-                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> 雲端主控中
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Socket 頻道建立中
             </div>
         </div>
     </nav>
 
     <div class="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
 
-        <!-- 教室代碼切換控制 -->
+        <!-- 教室代碼切換區域 -->
         <div class="bg-indigo-900 text-white p-6 rounded-2xl shadow-md flex flex-wrap justify-between items-center gap-4">
             <div>
-                <span class="text-indigo-300 text-sm font-medium">當前雲端教室代碼</span>
+                <span class="text-indigo-300 text-sm font-medium">當前 Socket 教室代碼</span>
                 <div class="flex items-center gap-2 mt-1">
                     <input type="text" id="teacherRoomCodeInput" value="888" class="bg-indigo-800 text-amber-300 font-mono font-black text-2xl px-3 py-1 rounded border border-indigo-600 w-32 uppercase text-center focus:outline-none">
                     <button onclick="switchRoom()" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold text-xs px-4 py-2 rounded shadow transition">
@@ -48,7 +47,7 @@
             </div>
         </div>
 
-        <!-- 出題區域 -->
+        <!-- 出題卡片 -->
         <div class="bg-white p-6 rounded-2xl shadow-md">
             <h3 class="text-lg font-bold mb-4 text-slate-800 border-b pb-2">
                 <i class="fa-solid fa-paper-plane text-indigo-600 mr-2"></i>發布新題目
@@ -79,7 +78,7 @@
                 </div>
 
                 <button onclick="publishQuestion()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-md transition">
-                    發布題目至雲端
+                    廣播題目給所有學生 (Socket)
                 </button>
             </div>
         </div>
@@ -100,7 +99,7 @@
             </div>
 
             <div class="mt-6">
-                <h4 class="text-sm font-semibold text-slate-600 mb-2">學生提交明細（實時）：</h4>
+                <h4 class="text-sm font-semibold text-slate-600 mb-2">學生提交明細（Socket 即時接收）：</h4>
                 <div id="studentResponsesList" class="max-h-40 overflow-y-auto space-y-1 bg-slate-50 p-3 rounded-lg border text-xs text-slate-600">
                     <div class="text-slate-400 text-center">尚無回答數據</div>
                 </div>
@@ -110,39 +109,31 @@
     </div>
 
     <script>
-        // 免費雲端 Firebase 配置
-        const firebaseConfig = {
-            databaseURL: "https://quiz-app-demo-default-rtdb.firebaseio.com/"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
+        const socket = io("https://pie-socket-server.herokuapp.com", {
+            transports: ['websocket', 'polling']
+        });
 
         let currentRoom = '888';
         let chartInstance = null;
-        let roomRef = null;
         let currentQuestion = null;
+        let answersMap = {}; // 儲存學生的回答 { "小明": "玉山" }
+
+        // 監聽 Socket 事件：接收學生的回答
+        socket.on("SUBMIT_ANSWER", (data) => {
+            if (data.room === currentRoom) {
+                answersMap[data.studentName] = data.option;
+                updateDashboard();
+            }
+        });
 
         function switchRoom() {
             const newRoom = document.getElementById('teacherRoomCodeInput').value.trim().toUpperCase();
-            if (!newRoom) {
-                alert('請輸入教室代碼！');
-                return;
-            }
+            if (!newRoom) return;
             currentRoom = newRoom;
-            listenToRoom(currentRoom);
-            alert(`已切換至教室代碼: ${currentRoom}`);
-        }
-
-        function listenToRoom(roomCode) {
-            if (roomRef) roomRef.off();
-            roomRef = db.ref(`rooms/${roomCode}`);
-
-            roomRef.on('value', (snapshot) => {
-                const data = snapshot.val() || {};
-                currentQuestion = data.activeQuestion || null;
-                const answers = data.answers || {};
-                updateDashboard(answers);
-            });
+            answersMap = {}; // 切換教室時重置答案
+            socket.emit("JOIN_ROOM", { room: currentRoom, name: "TEACHER" });
+            updateDashboard();
+            alert(`已切換 Socket 教室代碼為: ${currentRoom}`);
         }
 
         function publishQuestion() {
@@ -159,40 +150,43 @@
                 return;
             }
 
-            const questionData = {
+            currentQuestion = {
                 id: Date.now(),
                 question: questionText,
                 options: options
             };
 
-            // 推播至雲端並清空回答
-            db.ref(`rooms/${currentRoom}`).set({
-                activeQuestion: questionData,
-                answers: {}
+            answersMap = {}; // 清空之前的統計
+
+            // 透過 Socket 廣播題目給該房間的學生
+            socket.emit("NEW_QUESTION", {
+                room: currentRoom,
+                questionData: currentQuestion
             });
 
-            alert(`題目已成功發布至教室 [${currentRoom}]！`);
+            updateDashboard();
+            alert(`題目已透過 Socket 廣播至代碼 [${currentRoom}]！`);
         }
 
-        function updateDashboard(answers) {
-            const respondedStudents = Object.keys(answers);
-            document.getElementById('totalRespondedCount').innerText = respondedStudents.length;
+        function updateDashboard() {
+            const students = Object.keys(answersMap);
+            document.getElementById('totalRespondedCount').innerText = students.length;
 
             const listEl = document.getElementById('studentResponsesList');
-            if (respondedStudents.length === 0) {
+            if (students.length === 0) {
                 listEl.innerHTML = `<div class="text-slate-400 text-center">尚無回答數據</div>`;
             } else {
-                listEl.innerHTML = respondedStudents.map(s => 
+                listEl.innerHTML = students.map(s => 
                     `<div class="flex justify-between border-b pb-1">
                         <span class="font-medium">${s}</span>
-                        <span class="text-indigo-600 font-bold">${answers[s]}</span>
+                        <span class="text-indigo-600 font-bold">${answersMap[s]}</span>
                      </div>`
                 ).join('');
             }
 
             if (currentQuestion && chartInstance) {
                 const counts = currentQuestion.options.map(opt => {
-                    return Object.values(answers).filter(ans => ans === opt).length;
+                    return Object.values(answersMap).filter(ans => ans === opt).length;
                 });
 
                 chartInstance.data.labels = currentQuestion.options;
@@ -229,23 +223,24 @@
                 return;
             }
 
-            const botNames = ['小明', '小華', '阿強', '美美', '小東', '莉莉', '大衛'];
-            for (let i = 0; i < 5; i++) {
-                const randomName = botNames[Math.floor(Math.random() * botNames.length)] + '_' + Math.floor(Math.random() * 90 + 10);
+            const botNames = ['小明', '小華', '阿強', '美美', '小東'];
+            botNames.forEach(bot => {
                 const randomOpt = currentQuestion.options[Math.floor(Math.random() * currentQuestion.options.length)];
-                db.ref(`rooms/${currentRoom}/answers/${randomName}`).set(randomOpt);
-            }
+                answersMap[bot + '_' + Math.floor(Math.random() * 89 + 10)] = randomOpt;
+            });
+            updateDashboard();
         }
 
         function clearCurrentAnswers() {
-            if (confirm('確定要清除所有回答紀錄嗎？')) {
-                db.ref(`rooms/${currentRoom}/answers`).remove();
+            if (confirm('確定要清除統計紀錄嗎？')) {
+                answersMap = {};
+                updateDashboard();
             }
         }
 
         window.onload = () => {
             initChart();
-            listenToRoom(currentRoom);
+            socket.emit("JOIN_ROOM", { room: currentRoom, name: "TEACHER" });
         };
     </script>
 </body>
